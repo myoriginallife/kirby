@@ -57,10 +57,9 @@
     { id: "ability-beam", name: "빔", cat: "ability", hint: "광선 채찍을 휘둘러요" },
   ];
 
-  const CAT_LABELS = { friends: "친구·주인공", enemies: "적·보스", ability: "카피 능력", all: "전체" };
+  const CAT_LABELS = { friends: "친구·주인공", enemies: "적·보스", ability: "카피 능력" };
   const DIFF_MULTIPLIERS = { easy: 1, normal: 1.5, hard: 2 };
   const LEVEL_MODES = ["easy", "normal", "hard"];
-  const LEVEL_CATS = ["friends", "enemies", "ability", "all"];
   const QUESTIONS_PER_LEVEL = 10;
   const SHARE_URL = "https://myoriginallife.github.io/kirby/";
 
@@ -124,8 +123,7 @@
   let levelCorrect = 0;
   let maxLevel = 1;
   let difficulty = "easy";
-  let category = "friends";
-  let pool = [];
+  let deck = [];
   let score = 0;
   let streak = 0;
   let maxStreak = 0;
@@ -177,22 +175,27 @@
     const cycle = Math.floor(idx / 12);
     return {
       level: lv,
-      category: LEVEL_CATS[Math.floor(idx / 3) % LEVEL_CATS.length],
       difficulty: LEVEL_MODES[idx % LEVEL_MODES.length],
       questionsRequired: QUESTIONS_PER_LEVEL + cycle * 5,
       levelMultiplier: 1 + (lv - 1) * LEVEL_BONUS_RATE,
     };
   }
 
-  function buildPool(cat) {
-    return cat === "all" ? DATA : DATA.filter((d) => d.cat === cat);
+  // 첫 레벨부터 전체 캐릭터를 섞어서 출제하고, 한 바퀴 다 나오기 전엔 중복 없음
+  function drawFromDeck() {
+    if (deck.length === 0) {
+      deck = shuffle(DATA);
+      // 새 덱의 첫 문제가 직전 문제와 같지 않도록
+      if (deck.length > 1 && deck[deck.length - 1].id === lastId) {
+        [deck[0], deck[deck.length - 1]] = [deck[deck.length - 1], deck[0]];
+      }
+    }
+    return deck.pop();
   }
 
   function applyLevelConfig() {
     const cfg = getLevelConfig(level);
     difficulty = cfg.difficulty;
-    category = cfg.category;
-    pool = buildPool(category);
     els.level.textContent = level;
     updateLevelProgress();
     applyDifficultyVisuals();
@@ -268,16 +271,13 @@
     answering = false;
     els.choices.innerHTML = "";
 
-    let answer;
-    do {
-      answer = pool[Math.floor(Math.random() * pool.length)];
-    } while (pool.length > 1 && answer.id === lastId);
+    const answer = drawFromDeck();
     lastId = answer.id;
     current = answer;
 
     // 오답 보기는 같은 종류(능력 ↔ 캐릭터)에서 고른다
     const isAbility = answer.cat === "ability";
-    const sameKind = pool.filter((d) => (d.cat === "ability") === isAbility);
+    const sameKind = DATA.filter((d) => (d.cat === "ability") === isAbility);
     const wrong = pickRandom(sameKind, 3, answer);
     const options = shuffle([answer, ...wrong]);
 
@@ -368,7 +368,7 @@
     applyLevelConfig();
 
     els.levelupNum.textContent = `Level ${level}`;
-    els.levelupDesc.textContent = `${CAT_LABELS[category]} · ${DIFF_DESC[difficulty]}`;
+    els.levelupDesc.textContent = DIFF_DESC[difficulty];
     els.levelupOverlay.classList.remove("hidden");
 
     setTimeout(() => {
@@ -583,6 +583,7 @@
     levelCorrect = 0;
     maxLevel = 1;
     lastId = null;
+    deck = [];
     answering = false;
 
     els.score.textContent = "0";
