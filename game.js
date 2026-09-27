@@ -58,8 +58,48 @@
   ];
 
   const CAT_LABELS = { friends: "친구·주인공", enemies: "적·보스", ability: "카피 능력" };
-  const DIFF_MULTIPLIERS = { easy: 1, normal: 1.5, hard: 2 };
-  const LEVEL_MODES = ["easy", "normal", "hard"];
+
+  // 오답 보기로 섞이는 "그림에 없는" 진짜 커비 시리즈 이름 (헷갈리게 만들기용)
+  const DECOYS = {
+    character: [
+      "수지", "태란자", "엘피린", "리본", "아드레느", "키비", "다크 메타 나이트", "나이트메어",
+      "마르크 소울", "노디", "트위지", "서 키블", "포피 브로스 주니어", "버닝 레오",
+    ],
+    ability: [
+      "커터", "휠", "미러", "플라스마", "윙", "제트", "드릴", "에스퍼", "스피어", "레이저",
+      "크래시", "토네이도", "서커스",
+    ],
+  };
+
+  // 서로 닮아서 헷갈리는 그룹 → 오답 보기로 우선 등장
+  const SIMILAR = [
+    ["meta-knight", "galacta-knight", "blade-knight"],
+    ["waddle-dee", "bandana-dee", "waddle-doo", "kirby"],
+    ["kracko", "dark-matter", "zero", "gordo"],
+    ["kirby", "bronto-burt", "scarfy", "marx"],
+    ["chilly", "mr-frosty"],
+    ["hot-head", "sparky", "rocky"],
+    ["cappy", "broom-hatter", "shotzo"],
+    ["rick", "coo", "gooey", "magolor"],
+    ["ability-fire", "ability-water", "ability-ice", "ability-spark"],
+    ["ability-fighter", "ability-hammer", "ability-ninja"],
+    ["ability-sleep", "ability-cook", "ability-whip", "ability-bomb", "ability-yoyo", "ability-sword"],
+    ["ability-needle", "ability-spark", "ability-beam", "ability-stone"],
+    ["ability-parasol", "ability-mic", "ability-beam"],
+  ];
+
+  // 문제 표시 방식 (레벨이 오를수록 어려운 방식이 섞임)
+  const MODES = {
+    normal: { label: "기본", mult: 1, cls: [] },
+    silhouette: { label: "실루엣", mult: 1.5, cls: ["silhouette"] },
+    zoom: { label: "확대", mult: 1.5, cls: ["zoom"] },
+    blur: { label: "흐림", mult: 1.4, cls: ["blur"] },
+    spin: { label: "회전", mult: 1.3, cls: ["spin"] },
+    "silhouette-spin": { label: "실루엣+회전", mult: 2, cls: ["silhouette", "spin"] },
+    "blur-spin": { label: "흐림+회전", mult: 2, cls: ["blur", "spin"] },
+    "silhouette-zoom": { label: "실루엣+확대", mult: 2.3, cls: ["silhouette", "zoom"] },
+  };
+  const MODE_CLASSES = ["silhouette", "zoom", "blur", "spin"];
   const QUESTIONS_PER_LEVEL = 10;
   const SHARE_URL = "https://myoriginallife.github.io/kirby/";
 
@@ -67,7 +107,8 @@
   const BASE_SCORE = 10;
   const STREAK_BONUS = 5;
   const LEVEL_BONUS_RATE = 0.15;
-  const ANSWER_DELAY = 1200;
+  const TIME_BONUS_PER_SEC = 3;
+  const ANSWER_DELAY = 1500;
   const LEVELUP_DELAY = 2200;
   const STORAGE_KEY_SCORE = "kirby-guess-best";
   const STORAGE_KEY_LEVEL = "kirby-guess-best-level";
@@ -96,6 +137,8 @@
     questionLabel: $("#question-label"),
     categoryTag: $("#category-tag"),
     charArt: $("#char-art"),
+    modeTag: $("#mode-tag"),
+    timerFill: $("#timer-fill"),
     hint: $("#char-hint"),
     choices: $("#choices"),
     feedback: $("#feedback"),
@@ -122,7 +165,10 @@
   let level = 1;
   let levelCorrect = 0;
   let maxLevel = 1;
-  let difficulty = "easy";
+  let currentMode = "normal";
+  let timerRaf = null;
+  let roundStart = 0;
+  let roundLimit = 0;
   let deck = [];
   let score = 0;
   let streak = 0;
@@ -135,11 +181,6 @@
   let lastResult = null;
   let shareBlob = null;
 
-  const DIFF_DESC = {
-    easy: "힌트 공개",
-    normal: "힌트 없음",
-    hard: "실루엣 모드",
-  };
 
   function svgToImage(svgStr) {
     const img = new Image();
@@ -173,12 +214,25 @@
   function getLevelConfig(lv) {
     const idx = lv - 1;
     const cycle = Math.floor(idx / 12);
+    let modes;
+    if (lv === 1) modes = ["normal", "silhouette", "zoom"];
+    else if (lv === 2) modes = ["silhouette", "zoom", "blur", "spin"];
+    else if (lv <= 4) modes = ["silhouette", "zoom", "blur", "spin", "silhouette-spin"];
+    else modes = ["zoom", "blur", "silhouette-spin", "blur-spin", "silhouette-zoom"];
     return {
       level: lv,
-      difficulty: LEVEL_MODES[idx % LEVEL_MODES.length],
+      modes,
+      timeLimit: Math.max(4, 8 - (lv - 1) * 0.75), // 초
+      choiceCount: lv <= 2 ? 4 : 6,
+      useDecoys: lv >= 2,
+      zoomScale: lv >= 5 ? 3.2 : 2.6,
       questionsRequired: QUESTIONS_PER_LEVEL + cycle * 5,
       levelMultiplier: 1 + (lv - 1) * LEVEL_BONUS_RATE,
     };
+  }
+
+  function levelDesc(cfg) {
+    return `제한시간 ${cfg.timeLimit.toFixed(1).replace(".0", "")}초 · 보기 ${cfg.choiceCount}개`;
   }
 
   // 첫 레벨부터 전체 캐릭터를 섞어서 출제하고, 한 바퀴 다 나오기 전엔 중복 없음
@@ -194,11 +248,8 @@
   }
 
   function applyLevelConfig() {
-    const cfg = getLevelConfig(level);
-    difficulty = cfg.difficulty;
     els.level.textContent = level;
     updateLevelProgress();
-    applyDifficultyVisuals();
   }
 
   function updateLevelProgress() {
@@ -216,10 +267,11 @@
     els.bestLevel.textContent = getBestLevel();
   }
 
-  function calcPoints(streakCount) {
+  function calcPoints(streakCount, secondsLeft) {
     const cfg = getLevelConfig(level);
     const base = BASE_SCORE + (streakCount - 1) * STREAK_BONUS;
-    return Math.round(base * DIFF_MULTIPLIERS[cfg.difficulty] * cfg.levelMultiplier);
+    const timeBonus = Math.round(secondsLeft * TIME_BONUS_PER_SEC);
+    return Math.round(base * MODES[currentMode].mult * cfg.levelMultiplier) + timeBonus;
   }
 
   function pickRandom(arr, count, exclude) {
@@ -251,9 +303,69 @@
     }
   }
 
-  function applyDifficultyVisuals() {
-    els.charArt.classList.toggle("silhouette", difficulty === "hard");
-    els.hint.classList.toggle("hidden-num", difficulty !== "easy");
+  function applyMode(mode, cfg) {
+    currentMode = mode;
+    els.charArt.classList.remove(...MODE_CLASSES);
+    els.charArt.classList.add(...MODES[mode].cls);
+    // 확대 모드: 캐릭터의 일부분만 보이도록 무작위 위치를 확대
+    const ox = 30 + Math.random() * 40;
+    const oy = 30 + Math.random() * 40;
+    els.charArt.style.setProperty("--zoom-origin", `${ox}% ${oy}%`);
+    els.charArt.style.setProperty("--zoom-scale", cfg.zoomScale);
+    els.modeTag.textContent = MODES[mode].label;
+    els.modeTag.classList.toggle("hidden", mode === "normal");
+  }
+
+  function revealArt() {
+    els.charArt.classList.remove(...MODE_CLASSES);
+    els.hint.classList.remove("hidden-num");
+    els.categoryTag.classList.remove("concealed");
+  }
+
+  function buildOptions(answer, cfg) {
+    const kind = answer.cat === "ability" ? "ability" : "character";
+    const sameKind = DATA.filter((d) => (d.cat === "ability") === (kind === "ability") && d !== answer);
+    const need = cfg.choiceCount - 1;
+
+    const similarIds = new Set(SIMILAR.filter((g) => g.includes(answer.id)).flat());
+    const similar = sameKind.filter((d) => similarIds.has(d.id));
+    const wrong = pickRandom(similar, Math.min(2, need));
+
+    let rest = sameKind.filter((d) => !wrong.includes(d));
+    if (cfg.useDecoys) {
+      const decoys = DECOYS[kind].map((name) => ({ id: `decoy-${name}`, name }));
+      rest = rest.concat(pickRandom(decoys, 3));
+    }
+    wrong.push(...pickRandom(rest, need - wrong.length));
+    return shuffle([answer, ...wrong]);
+  }
+
+  function stopTimer() {
+    if (timerRaf) cancelAnimationFrame(timerRaf);
+    timerRaf = null;
+  }
+
+  function secondsLeft() {
+    return Math.max(0, roundLimit - (performance.now() - roundStart) / 1000);
+  }
+
+  function startTimer(limit) {
+    stopTimer();
+    roundLimit = limit;
+    roundStart = performance.now();
+    const tick = () => {
+      const left = secondsLeft();
+      const pct = (left / roundLimit) * 100;
+      els.timerFill.style.width = `${pct}%`;
+      els.timerFill.classList.toggle("danger", pct < 35);
+      if (left <= 0) {
+        timerRaf = null;
+        handleAnswer(null, null);
+        return;
+      }
+      timerRaf = requestAnimationFrame(tick);
+    };
+    tick();
   }
 
   function clearFeedback() {
@@ -275,11 +387,10 @@
     lastId = answer.id;
     current = answer;
 
-    // 오답 보기는 같은 종류(능력 ↔ 캐릭터)에서 고른다
+    const cfg = getLevelConfig(level);
     const isAbility = answer.cat === "ability";
-    const sameKind = DATA.filter((d) => (d.cat === "ability") === isAbility);
-    const wrong = pickRandom(sameKind, 3, answer);
-    const options = shuffle([answer, ...wrong]);
+    const options = buildOptions(answer, cfg);
+    els.choices.classList.toggle("six", options.length > 4);
 
     options.forEach((opt) => {
       const btn = document.createElement("button");
@@ -297,25 +408,31 @@
     els.charArt.classList.remove("pop");
     void els.charArt.offsetWidth;
     els.charArt.classList.add("pop");
-    applyDifficultyVisuals();
+    els.hint.classList.add("hidden-num");
+    els.categoryTag.classList.add("concealed");
+    applyMode(cfg.modes[Math.floor(Math.random() * cfg.modes.length)], cfg);
+    startTimer(cfg.timeLimit);
   }
 
   function handleAnswer(btn, chosenId) {
     if (answering) return;
     answering = true;
 
-    const isCorrect = chosenId === current.id;
+    const left = secondsLeft();
+    stopTimer();
+    const timedOut = btn === null;
+    const isCorrect = !timedOut && chosenId === current.id;
     const buttons = els.choices.querySelectorAll(".choice-btn");
     buttons.forEach((b) => (b.disabled = true));
 
-    // 정답 공개: 실루엣 해제
-    els.charArt.classList.remove("silhouette");
+    // 정답 공개: 가림 효과 해제 + 힌트(설명) 표시
+    revealArt();
 
     if (isCorrect) {
       btn.classList.add("correct");
       streak++;
       if (streak > maxStreak) maxStreak = streak;
-      const points = calcPoints(streak);
+      const points = calcPoints(streak, left);
       score += points;
       correctCount++;
       levelCorrect++;
@@ -337,7 +454,7 @@
         else startRound();
       }, ANSWER_DELAY);
     } else {
-      btn.classList.add("wrong");
+      if (btn) btn.classList.add("wrong");
       buttons.forEach((b) => {
         if (b.dataset.id === current.id) b.classList.add("correct");
       });
@@ -347,7 +464,10 @@
       els.streak.textContent = streak;
       renderLives();
 
-      showFeedback("wrong-fb", `틀렸어요! 정답은 ${current.name}`);
+      showFeedback(
+        "wrong-fb",
+        `${timedOut ? "⏰ 시간 초과!" : "틀렸어요!"} 정답은 ${current.name}`
+      );
 
       setTimeout(() => {
         if (lives <= 0) {
@@ -368,7 +488,7 @@
     applyLevelConfig();
 
     els.levelupNum.textContent = `Level ${level}`;
-    els.levelupDesc.textContent = DIFF_DESC[difficulty];
+    els.levelupDesc.textContent = levelDesc(getLevelConfig(level));
     els.levelupOverlay.classList.remove("hidden");
 
     setTimeout(() => {
@@ -378,6 +498,7 @@
   }
 
   function endGame() {
+    stopTimer();
     const isNewRecord = score > getBestScore();
     const isNewLevel = maxLevel > getBestLevel();
 
@@ -585,6 +706,7 @@
     lastId = null;
     deck = [];
     answering = false;
+    stopTimer();
 
     els.score.textContent = "0";
     els.streak.textContent = "0";

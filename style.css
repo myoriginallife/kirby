@@ -582,8 +582,77 @@ body.in-game .screen {
   transition: filter 0.3s ease;
 }
 
+.char-art-frame {
+  width: 200px;
+  height: 200px;
+  overflow: hidden;
+  border-radius: 16px;
+}
+
+.char-art svg {
+  transform-origin: var(--zoom-origin, 50% 50%);
+  transition: filter 0.3s ease, transform 0.35s ease;
+}
+
 .char-art.silhouette svg {
   filter: brightness(0) drop-shadow(0 0 6px rgba(255, 255, 255, 0.35));
+}
+
+.char-art.blur svg {
+  filter: blur(9px) saturate(0.7);
+}
+
+.char-art.zoom svg {
+  transform: scale(var(--zoom-scale, 2.6));
+}
+
+.char-art.spin svg {
+  transform-origin: 50% 50%;
+  animation: spin 1.6s linear infinite;
+}
+
+.category-tag.concealed {
+  visibility: hidden;
+}
+
+.mode-tag {
+  position: absolute;
+  top: 12px;
+  right: 12px;
+  padding: 3px 10px;
+  border-radius: 20px;
+  background: rgba(255, 217, 61, 0.18);
+  color: var(--yellow);
+  font-size: 0.7rem;
+  font-weight: 700;
+}
+
+.mode-tag.hidden {
+  display: none;
+}
+
+.timer-track {
+  width: 100%;
+  height: 8px;
+  background: rgba(0, 0, 0, 0.3);
+  border-radius: 4px;
+  overflow: hidden;
+}
+
+.timer-fill {
+  height: 100%;
+  width: 100%;
+  background: linear-gradient(90deg, var(--green), var(--yellow));
+  border-radius: 4px;
+}
+
+.timer-fill.danger {
+  background: var(--wrong);
+}
+
+.choices.six .choice-btn {
+  padding: 11px 8px;
+  font-size: 0.88rem;
 }
 
 .char-art.pop {
@@ -830,7 +899,8 @@ body.in-game .screen {
 
 /* ============ Responsive ============ */
 @media (max-height: 600px) {
-  .char-art {
+  .char-art,
+  .char-art-frame {
     width: 150px;
     height: 150px;
   }

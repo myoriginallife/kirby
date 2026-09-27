@@ -14,7 +14,7 @@
     <meta http-equiv="Pragma" content="no-cache" />
     <title>별의 커비 캐릭터 맞히기</title>
     <link rel="icon" href="favicon.svg" type="image/svg+xml" />
-    <link rel="stylesheet" href="style.css?v=1" />
+    <link rel="stylesheet" href="style.css?v=3" />
   </head>
   <body>
   <div id="app">
@@ -79,7 +79,11 @@
         <p id="question-label" class="question-label">이 캐릭터의 이름은?</p>
         <div class="char-card">
           <span id="category-tag" class="category-tag">친구·주인공</span>
-          <div id="char-art" class="char-art" role="img" aria-label="문제 캐릭터"></div>
+          <span id="mode-tag" class="mode-tag hidden"></span>
+          <div class="char-art-frame">
+            <div id="char-art" class="char-art" role="img" aria-label="문제 캐릭터"></div>
+          </div>
+          <div class="timer-track"><div id="timer-fill" class="timer-fill"></div></div>
           <div id="char-hint" class="char-hint">💡</div>
         </div>
       </div>
@@ -153,6 +157,6 @@
   </footer>
 
   <script src="art.js?v=1"></script>
-  <script src="game.js?v=2"></script>
+  <script src="game.js?v=3"></script>
   </body>
 </html>
